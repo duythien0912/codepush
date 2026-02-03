@@ -1,638 +1,971 @@
-# Flutter Client Implementation Plan
+# Client Implementation Plan - Updater CLI (Ultra-Detailed for Freshers)
 
-## 🎯 Goal
+## 📖 Table of Contents
+1. [Overview](#overview)
+2. [Prerequisites](#prerequisites)
+3. [Step-by-Step Implementation](#implementation)
+4. [Testing](#testing)
+5. [Integration](#integration)
+6. [Troubleshooting](#troubleshooting)
 
-Create a Flutter package that automatically checks for updates and applies patches using Shorebird engine.
+---
 
-## 📊 Base
+## 🎯 Overview
 
-Fork from: https://github.com/shorebirdtech/updater
+### What are we building?
+A custom version of Shorebird's updater tool that connects to YOUR backend instead of Shorebird's cloud.
 
-**Why fork?**
-- Already has Shorebird engine integration
-- Handles platform-specific patch installation
-- Proven architecture
-- Just need to change API endpoints
+### Why this approach?
+- ✅ Official tool from Shorebird (battle-tested)
+- ✅ Only 1 line of code to change
+- ✅ No need to understand Rust
+- ✅ Works exactly like original
 
-## 📁 File Structure
+### What will you have after this?
+A binary file called `shorebird_updater` that:
+- Checks YOUR backend for updates
+- Downloads patches from YOUR R2 storage
+- Installs patches in Flutter apps
+- Works on macOS, Linux, Windows
 
+### Time required: 10-15 minutes
+
+---
+
+## 📋 Prerequisites
+
+### ✅ Checklist Before Starting
+
+**1. Backend must be deployed**
+- [ ] Cloudflare Workers deployed
+- [ ] Have production URL (e.g., `https://shorebird-backend.abc123.workers.dev`)
+- [ ] Backend tested with curl
+
+**Why?** You need the URL to put in config.rs
+
+**2. Tools installed**
+- [ ] Git installed (`git --version`)
+- [ ] Rust installed (`rustc --version`) - We'll install if needed
+- [ ] Terminal/Command line open
+
+**Why?** Git to clone, Rust to build
+
+**3. Know your backend URL**
+- Write it down: `_________________________________`
+- Example: `https://shorebird-backend.abc123.workers.dev`
+
+**Why?** You'll need to type this exactly
+
+---
+
+## 🚀 STEP 1: Clone Repository
+
+### 📍 Purpose
+Download the official updater source code from Shorebird's GitHub.
+
+### 🎯 What you'll do
+Copy the code to your computer so you can modify it.
+
+### 📝 Exact Actions
+
+**Action 1.1: Open Terminal**
+- **macOS:** Press `Cmd + Space`, type "Terminal", press Enter
+- **Windows:** Press `Win + R`, type "cmd", press Enter
+- **Linux:** Press `Ctrl + Alt + T`
+
+**Expected:** A black/white window with text cursor
+
+**Common mistake:** Opening wrong app (like Text Editor)
+**How to avoid:** Look for window with `$` or `>` symbol
+
+---
+
+**Action 1.2: Navigate to project folder**
+
+```bash
+cd /Users/neun/Desktop/codepush
 ```
-client/
-├── pubspec.yaml
-├── README.md
-├── CHANGELOG.md
-├── LICENSE
-├── lib/
-│   ├── shorebird_updater.dart       # Main public API
-│   ├── src/
-│   │   ├── config.dart              # Configuration
-│   │   ├── update_checker.dart      # Check for updates
-│   │   ├── patch_downloader.dart    # Download patches
-│   │   ├── patch_installer.dart     # Install patches
-│   │   ├── storage.dart             # Local storage
-│   │   └── models.dart              # Data models
-│   └── shorebird_updater_platform_interface.dart
-├── example/
-│   ├── lib/
-│   │   └── main.dart                # Example app
-│   └── pubspec.yaml
-└── test/
-    └── shorebird_updater_test.dart
+
+**What this does:** Changes directory to your project folder
+
+**Expected output:**
+```
+/Users/neun/Desktop/codepush $
 ```
 
-## 📦 Dependencies
+**Common mistakes:**
+- ❌ Typing wrong path
+- ❌ Folder doesn't exist
 
-### pubspec.yaml
-```yaml
-name: shorebird_updater
-description: Auto-update Flutter apps using custom Shorebird server
-version: 1.0.0
+**How to fix:**
+```bash
+# Check current location
+pwd
 
-environment:
-  sdk: '>=3.0.0 <4.0.0'
-  flutter: '>=3.24.0'
-
-dependencies:
-  flutter:
-    sdk: flutter
-  http: ^1.1.0              # HTTP client
-  crypto: ^3.0.3            # SHA256 verification
-  path_provider: ^2.1.1     # Temp directory
-  shared_preferences: ^2.2.2 # Store patch number
-  package_info_plus: ^5.0.1  # Get app version
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^3.0.0
+# Create folder if needed
+mkdir -p /Users/neun/Desktop/codepush
+cd /Users/neun/Desktop/codepush
 ```
 
-## 🎯 Public API
+---
 
-### Basic Usage
+**Action 1.3: Clone repository**
+
+```bash
+git clone https://github.com/shorebirdtech/updater.git
+```
+
+**What this does:** Downloads all code from GitHub to your computer
+
+**Expected output:**
+```
+Cloning into 'updater'...
+remote: Enumerating objects: 1234, done.
+remote: Counting objects: 100% (1234/1234), done.
+remote: Compressing objects: 100% (567/567), done.
+remote: Total 1234 (delta 890), reused 1234 (delta 890)
+Receiving objects: 100% (1234/1234), 2.34 MiB | 5.67 MiB/s, done.
+Resolving deltas: 100% (890/890), done.
+```
+
+**Time:** 10-30 seconds (depends on internet speed)
+
+**Common mistakes:**
+- ❌ "git: command not found" → Install Git first
+- ❌ "Permission denied" → Check internet connection
+- ❌ Folder already exists → Delete old folder first: `rm -rf updater`
+
+**How to verify:**
+```bash
+ls -la
+# Should see "updater" folder
+```
+
+---
+
+**Action 1.4: Enter updater folder**
+
+```bash
+cd updater
+```
+
+**What this does:** Moves into the downloaded folder
+
+**Expected output:**
+```
+/Users/neun/Desktop/codepush/updater $
+```
+
+**How to verify:**
+```bash
+ls
+# Should see: Cargo.toml, library/, README.md, etc.
+```
+
+### ✅ Checkpoint 1
+- [ ] Terminal open
+- [ ] In `/Users/neun/Desktop/codepush/updater` folder
+- [ ] Can see files with `ls` command
+
+**If stuck:** Re-read Action 1.1 to 1.4
+
+---
+
+## 🚀 STEP 2: Modify Configuration
+
+### 📍 Purpose
+Change the base URL from Shorebird's API to YOUR backend API.
+
+### 🎯 What you'll do
+Edit ONE line in ONE file to point to your Cloudflare Workers.
+
+### 📝 Exact Actions
+
+**Action 2.1: Open config file**
+
+**Option A: Using VS Code (Recommended)**
+```bash
+code library/src/config.rs
+```
+
+**Option B: Using nano (Terminal editor)**
+```bash
+nano library/src/config.rs
+```
+
+**Option C: Using any text editor**
+- Open Finder/Explorer
+- Navigate to `updater/library/src/`
+- Double-click `config.rs`
+
+**Expected:** File opens showing Rust code
+
+**Common mistakes:**
+- ❌ Opening wrong file
+- ❌ File not found
+
+**How to verify:** File should contain text like:
+```rust
+pub const BASE_URL: &str = "https://api.shorebird.dev";
+```
+
+---
+
+**Action 2.2: Find the BASE_URL line**
+
+**In VS Code:**
+- Press `Cmd + F` (Mac) or `Ctrl + F` (Windows/Linux)
+- Type: `BASE_URL`
+- Press Enter
+
+**In nano:**
+- Press `Ctrl + W`
+- Type: `BASE_URL`
+- Press Enter
+
+**Expected:** Cursor jumps to this line:
+```rust
+pub const BASE_URL: &str = "https://api.shorebird.dev";
+```
+
+**Line number:** Usually around line 10-20
+
+**Common mistakes:**
+- ❌ Can't find the line → Make sure you opened correct file
+- ❌ Multiple BASE_URL → Use the one with `pub const`
+
+---
+
+**Action 2.3: Change the URL**
+
+**BEFORE:**
+```rust
+pub const BASE_URL: &str = "https://api.shorebird.dev";
+```
+
+**AFTER:**
+```rust
+pub const BASE_URL: &str = "https://shorebird-backend.YOUR-SUBDOMAIN.workers.dev";
+```
+
+**⚠️ IMPORTANT:**
+- Replace `YOUR-SUBDOMAIN` with your actual subdomain
+- Keep the quotes `"`
+- Keep the semicolon `;`
+- Don't add trailing slash `/`
+
+**Example (correct):**
+```rust
+pub const BASE_URL: &str = "https://shorebird-backend.abc123.workers.dev";
+```
+
+**Examples (wrong):**
+```rust
+// ❌ Missing quotes
+pub const BASE_URL: &str = https://shorebird-backend.abc123.workers.dev;
+
+// ❌ Trailing slash
+pub const BASE_URL: &str = "https://shorebird-backend.abc123.workers.dev/";
+
+// ❌ Missing semicolon
+pub const BASE_URL: &str = "https://shorebird-backend.abc123.workers.dev"
+
+// ❌ Wrong URL
+pub const BASE_URL: &str = "https://api.shorebird.dev";
+```
+
+**How to verify:** Read the line 3 times to make sure it's correct
+
+---
+
+**Action 2.4: Save the file**
+
+**In VS Code:**
+- Press `Cmd + S` (Mac) or `Ctrl + S` (Windows/Linux)
+- Close the file
+
+**In nano:**
+- Press `Ctrl + O` (save)
+- Press Enter (confirm)
+- Press `Ctrl + X` (exit)
+
+**Expected:** File saved, no error messages
+
+**How to verify:**
+```bash
+# View the file to confirm change
+cat library/src/config.rs | grep BASE_URL
+```
+
+**Expected output:**
+```rust
+pub const BASE_URL: &str = "https://shorebird-backend.abc123.workers.dev";
+```
+
+### ✅ Checkpoint 2
+- [ ] File `config.rs` opened
+- [ ] Found `BASE_URL` line
+- [ ] Changed to YOUR backend URL
+- [ ] Saved file
+- [ ] Verified with `cat` command
+
+**If stuck:** Re-read Action 2.1 to 2.4
+
+---
+
+## 🚀 STEP 3: Install Rust (If Needed)
+
+### 📍 Purpose
+Install Rust programming language to build the updater tool.
+
+### 🎯 What you'll do
+Check if Rust is installed. If not, install it.
+
+### 📝 Exact Actions
+
+**Action 3.1: Check if Rust is installed**
+
+```bash
+rustc --version
+```
+
+**Expected output (if installed):**
+```
+rustc 1.75.0 (82e1608df 2023-12-21)
+```
+
+**Expected output (if NOT installed):**
+```
+rustc: command not found
+```
+
+**If installed:** Skip to Step 4
+**If NOT installed:** Continue to Action 3.2
+
+---
+
+**Action 3.2: Install Rust**
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+**What this does:** Downloads and runs Rust installer
+
+**Expected output:**
+```
+info: downloading installer
+
+Welcome to Rust!
+
+This will download and install the official compiler for the Rust
+programming language, and its package manager, Cargo.
+
+...
+
+1) Proceed with installation (default)
+2) Customize installation
+3) Cancel installation
+>
+```
+
+**Action:** Type `1` and press Enter
+
+**Time:** 2-5 minutes (depends on internet speed)
+
+**Expected output (at end):**
+```
+Rust is installed now. Great!
+
+To get started you may need to restart your current shell.
+This would reload your PATH environment variable to include
+Cargo's bin directory ($HOME/.cargo/bin).
+
+To configure your current shell, run:
+source "$HOME/.cargo/env"
+```
+
+**Common mistakes:**
+- ❌ "curl: command not found" → Install curl first
+- ❌ Installation hangs → Check internet connection
+- ❌ Permission denied → Don't use `sudo`
+
+---
+
+**Action 3.3: Activate Rust**
+
+```bash
+source $HOME/.cargo/env
+```
+
+**What this does:** Makes Rust available in current terminal
+
+**Expected output:** (none - silent success)
+
+**How to verify:**
+```bash
+rustc --version
+```
+
+**Expected:**
+```
+rustc 1.75.0 (82e1608df 2023-12-21)
+```
+
+### ✅ Checkpoint 3
+- [ ] Rust installed
+- [ ] `rustc --version` shows version number
+- [ ] `cargo --version` shows version number
+
+**If stuck:** Close terminal, open new one, try `rustc --version` again
+
+---
+
+## 🚀 STEP 4: Build the Updater
+
+### 📍 Purpose
+Compile the Rust source code into an executable binary file.
+
+### 🎯 What you'll do
+Run one command that builds the updater tool.
+
+### 📝 Exact Actions
+
+**Action 4.1: Make sure you're in updater folder**
+
+```bash
+pwd
+```
+
+**Expected output:**
+```
+/Users/neun/Desktop/codepush/updater
+```
+
+**If wrong location:**
+```bash
+cd /Users/neun/Desktop/codepush/updater
+```
+
+---
+
+**Action 4.2: Build in release mode**
+
+```bash
+cargo build --release
+```
+
+**What this does:** 
+- Compiles Rust code
+- Creates optimized binary
+- Puts it in `target/release/` folder
+
+**Expected output:**
+```
+   Compiling proc-macro2 v1.0.70
+   Compiling unicode-ident v1.0.12
+   Compiling libc v0.2.151
+   ...
+   Compiling updater v0.1.0 (/Users/neun/Desktop/codepush/updater)
+    Finished release [optimized] target(s) in 2m 34s
+```
+
+**Time:** 2-5 minutes (first time is slower)
+
+**Progress indicators:**
+- `Compiling` = Building dependencies
+- `Finished` = Done!
+
+**Common mistakes:**
+- ❌ "error: could not compile" → Check config.rs syntax
+- ❌ Build hangs → Wait, it's normal for first build
+- ❌ "cargo: command not found" → Rust not installed properly
+
+**If error in config.rs:**
+```bash
+# View the error
+# Usually shows line number
+
+# Fix the file
+nano library/src/config.rs
+
+# Build again
+cargo build --release
+```
+
+---
+
+**Action 4.3: Verify binary was created**
+
+```bash
+ls -lh target/release/updater
+```
+
+**Expected output:**
+```
+-rwxr-xr-x  1 neun  staff   3.2M Jan  1 12:00 target/release/updater
+```
+
+**What to check:**
+- File exists ✅
+- Size is ~3-5 MB ✅
+- Has execute permission (`x`) ✅
+
+**Common mistakes:**
+- ❌ File not found → Build failed, check errors
+- ❌ File is 0 bytes → Build incomplete
+
+---
+
+**Action 4.4: Test the binary**
+
+```bash
+./target/release/updater --version
+```
+
+**Expected output:**
+```
+updater 0.1.0
+```
+
+**Common mistakes:**
+- ❌ "Permission denied" → Run: `chmod +x target/release/updater`
+- ❌ "No such file" → Build didn't complete
+
+### ✅ Checkpoint 4
+- [ ] Build completed without errors
+- [ ] Binary file exists at `target/release/updater`
+- [ ] Binary runs and shows version
+
+**If stuck:** Delete `target/` folder and rebuild:
+```bash
+rm -rf target
+cargo build --release
+```
+
+---
+
+## 🚀 STEP 5: Rename and Install
+
+### 📍 Purpose
+Give the binary a custom name and make it accessible from anywhere.
+
+### 🎯 What you'll do
+Copy the binary with a new name and install it globally.
+
+### 📝 Exact Actions
+
+**Action 5.1: Create renamed copy**
+
+```bash
+cp target/release/updater target/release/shorebird_updater
+```
+
+**What this does:** Creates a copy with new name
+
+**Why rename?** 
+- Distinguish from original Shorebird updater
+- Avoid conflicts
+- Clear it's YOUR custom version
+
+**Expected output:** (none - silent success)
+
+**How to verify:**
+```bash
+ls -lh target/release/ | grep updater
+```
+
+**Expected:**
+```
+-rwxr-xr-x  1 neun  staff   3.2M Jan  1 12:00 updater
+-rwxr-xr-x  1 neun  staff   3.2M Jan  1 12:00 shorebird_updater
+```
+
+**Common mistakes:**
+- ❌ Typo in name → Check spelling
+- ❌ File not created → Check source file exists
+
+---
+
+**Action 5.2: Test renamed binary**
+
+```bash
+./target/release/shorebird_updater --version
+```
+
+**Expected output:**
+```
+updater 0.1.0
+```
+
+**Note:** Version still shows "updater" - that's OK!
+
+---
+
+**Action 5.3: Install globally (Optional but recommended)**
+
+```bash
+sudo cp target/release/shorebird_updater /usr/local/bin/
+sudo chmod +x /usr/local/bin/shorebird_updater
+```
+
+**What this does:**
+- Copies binary to system folder
+- Makes it executable
+- Allows running from anywhere
+
+**Expected output:**
+```
+Password: [type your password]
+```
+
+**Note:** Password won't show while typing - that's normal!
+
+**Common mistakes:**
+- ❌ "Permission denied" → Need `sudo`
+- ❌ Wrong password → Try again
+- ❌ `/usr/local/bin` doesn't exist → Create it: `sudo mkdir -p /usr/local/bin`
+
+---
+
+**Action 5.4: Verify global installation**
+
+```bash
+# Test from any location
+cd ~
+shorebird_updater --version
+```
+
+**Expected output:**
+```
+updater 0.1.0
+```
+
+**If this works:** ✅ Installed globally!
+**If "command not found":** Binary not in PATH, use full path instead
+
+### ✅ Checkpoint 5
+- [ ] Binary renamed to `shorebird_updater`
+- [ ] Renamed binary works
+- [ ] (Optional) Installed globally
+- [ ] Can run `shorebird_updater --version` from anywhere
+
+---
+
+## 🧪 STEP 6: Test with Your Backend
+
+### 📍 Purpose
+Verify the updater connects to YOUR backend and can check for updates.
+
+### 🎯 What you'll do
+Run a test command to check if backend communication works.
+
+### 📝 Exact Actions
+
+**Action 6.1: Prepare test parameters**
+
+You need:
+- **app_id:** Your app's bundle ID (e.g., `com.yourapp.name`)
+- **version:** App version (e.g., `1.0.0`)
+- **platform:** `android` or `ios`
+- **patch:** Current patch number (use `0` for testing)
+
+**Write them down:**
+- app_id: `_________________________________`
+- version: `_________________________________`
+- platform: `_________________________________`
+
+---
+
+**Action 6.2: Run check command**
+
+```bash
+shorebird_updater check \
+  --app-id com.yourapp.name \
+  --version 1.0.0 \
+  --platform android \
+  --patch 0
+```
+
+**Replace:**
+- `com.yourapp.name` → Your actual app ID
+- `1.0.0` → Your actual version
+- `android` → Your platform
+
+**What this does:** Asks YOUR backend if updates are available
+
+**Expected output (no patches yet):**
+```
+No update available
+```
+
+**Expected output (patch exists):**
+```
+Update available: patch 1
+Download URL: https://pub-xxxxx.r2.dev/com.yourapp.name/android/1.bin
+SHA256: abc123def456...
+Size: 1234567 bytes
+```
+
+**Common mistakes:**
+- ❌ "Connection refused" → Backend not running
+- ❌ "404 Not Found" → Wrong base_url in config.rs
+- ❌ "Invalid app_id" → Check app_id matches backend
+
+---
+
+**Action 6.3: Verify backend connection**
+
+```bash
+# Test backend directly with curl
+curl "https://YOUR-BACKEND-URL/api/check?app_id=com.yourapp.name&version=1.0.0&platform=android&patch=0"
+```
+
+**Expected output:**
+```json
+{"has_update":false}
+```
+
+**Or if patch exists:**
+```json
+{
+  "has_update":true,
+  "patch":{
+    "patch_number":1,
+    "download_url":"https://...",
+    "sha256":"...",
+    "size_bytes":1234567
+  }
+}
+```
+
+**If this works but updater doesn't:**
+- Problem is in updater configuration
+- Double-check base_url in config.rs
+- Rebuild: `cargo build --release`
+
+### ✅ Checkpoint 6
+- [ ] Check command runs without errors
+- [ ] Backend responds (even if no update)
+- [ ] curl test confirms backend works
+- [ ] Ready for real usage
+
+---
+
+## 📱 STEP 7: Integration with Flutter (Overview)
+
+### 📍 Purpose
+Understand how to use the updater in your Flutter app.
+
+### 🎯 Options
+
+**Option 1: Call from Dart (Simplest)**
 
 ```dart
-import 'package:shorebird_updater/shorebird_updater.dart';
+import 'dart:io';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  final updater = ShorebirdUpdater(
-    apiUrl: 'https://api.yourapp.com',
-    appId: 'com.yourapp.name',
+Future<bool> checkForUpdate() async {
+  final result = await Process.run(
+    'shorebird_updater',
+    [
+      'check',
+      '--app-id', 'com.yourapp.name',
+      '--version', '1.0.0',
+      '--platform', Platform.isAndroid ? 'android' : 'ios',
+      '--patch', '0',
+    ],
   );
   
-  // Check and update on app start
-  await updater.checkAndUpdate();
-  
-  runApp(MyApp());
+  return result.exitCode == 0 && result.stdout.contains('Update available');
 }
 ```
 
-### Advanced Usage
+**Option 2: Bundle with app**
+- Copy binary to app assets
+- Extract on first run
+- Call from Dart
 
-```dart
-final updater = ShorebirdUpdater(
-  apiUrl: 'https://api.yourapp.com',
-  appId: 'com.yourapp.name',
-  autoCheck: true,              // Auto check on init
-  showProgress: true,           // Show progress dialog
-  onUpdateAvailable: (info) {
-    print('Update available: ${info.patchNumber}');
-  },
-  onUpdateDownloading: (progress) {
-    print('Downloading: ${progress}%');
-  },
-  onUpdateInstalled: () {
-    print('Update installed, restarting...');
-  },
-  onError: (error) {
-    print('Update error: $error');
-  },
-);
+**Option 3: Create Flutter package**
+- Wrap updater in Dart package
+- Publish to pub.dev
+- Reuse across projects
 
-// Manual check
-final hasUpdate = await updater.checkForUpdate();
-if (hasUpdate) {
-  await updater.downloadAndInstall();
-}
+**Detailed integration guide:** See separate document
 
-// Get current patch info
-final currentPatch = await updater.getCurrentPatchNumber();
-print('Current patch: $currentPatch');
+---
+
+## 🚨 Troubleshooting Guide
+
+### Problem: "git: command not found"
+
+**Cause:** Git not installed
+
+**Solution:**
+```bash
+# macOS
+xcode-select --install
+
+# Ubuntu/Debian
+sudo apt-get install git
+
+# Windows
+# Download from https://git-scm.com/
 ```
 
-## 🔄 Update Flow
+---
 
-### Complete Flow
-```
-1. App starts
-   ↓
-2. Initialize ShorebirdUpdater
-   ↓
-3. Get current version from package_info
-   ↓
-4. Get current patch number from local storage
-   ↓
-5. Call API: GET /api/check
-   ↓
-6. If no update → Continue app launch
-   ↓
-7. If update available → Download patch
-   ↓
-8. Verify SHA256 hash
-   ↓
-9. Save to temp directory
-   ↓
-10. Call Shorebird engine to install
-   ↓
-11. Update local patch number
-   ↓
-12. Restart app (or prompt user)
+### Problem: "cargo: command not found"
+
+**Cause:** Rust not installed or not in PATH
+
+**Solution:**
+```bash
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Activate in current terminal
+source $HOME/.cargo/env
+
+# Verify
+cargo --version
 ```
 
-## 📝 Implementation Details
+---
 
-### 1. Main Class
+### Problem: Build fails with "error: could not compile"
 
-**File:** `lib/shorebird_updater.dart`
+**Cause:** Syntax error in config.rs
 
-```dart
-class ShorebirdUpdater {
-  final String apiUrl;
-  final String appId;
-  final bool autoCheck;
-  final bool showProgress;
-  final Function(UpdateInfo)? onUpdateAvailable;
-  final Function(double)? onUpdateDownloading;
-  final Function()? onUpdateInstalled;
-  final Function(dynamic)? onError;
-  
-  ShorebirdUpdater({
-    required this.apiUrl,
-    required this.appId,
-    this.autoCheck = false,
-    this.showProgress = false,
-    this.onUpdateAvailable,
-    this.onUpdateDownloading,
-    this.onUpdateInstalled,
-    this.onError,
-  }) {
-    if (autoCheck) {
-      checkAndUpdate();
-    }
-  }
-  
-  Future<bool> checkForUpdate() async {
-    try {
-      final checker = UpdateChecker(apiUrl: apiUrl, appId: appId);
-      final updateInfo = await checker.check();
-      
-      if (updateInfo != null) {
-        onUpdateAvailable?.call(updateInfo);
-        return true;
-      }
-      
-      return false;
-    } catch (e) {
-      onError?.call(e);
-      return false;
-    }
-  }
-  
-  Future<void> downloadAndInstall() async {
-    // Implementation
-  }
-  
-  Future<void> checkAndUpdate() async {
-    final hasUpdate = await checkForUpdate();
-    if (hasUpdate) {
-      await downloadAndInstall();
-    }
-  }
-  
-  Future<int> getCurrentPatchNumber() async {
-    final storage = Storage();
-    return await storage.getPatchNumber();
-  }
-}
+**Solution:**
+1. Read error message carefully
+2. Note line number
+3. Open config.rs
+4. Check that line
+5. Common issues:
+   - Missing quote `"`
+   - Missing semicolon `;`
+   - Typo in URL
+
+**Example error:**
+```
+error: expected `;`, found `pub`
+ --> library/src/config.rs:10:60
 ```
 
-### 2. Update Checker
+**Fix:** Add semicolon at end of line 10
 
-**File:** `lib/src/update_checker.dart`
+---
 
-**Responsibilities:**
-- Get current app version
-- Get current patch number
-- Call backend API
-- Parse response
+### Problem: "No update available" but patch exists
 
-```dart
-class UpdateChecker {
-  final String apiUrl;
-  final String appId;
-  
-  UpdateChecker({
-    required this.apiUrl,
-    required this.appId,
-  });
-  
-  Future<UpdateInfo?> check() async {
-    // Get current version
-    final packageInfo = await PackageInfo.fromPlatform();
-    final version = packageInfo.version;
-    
-    // Get current patch number
-    final storage = Storage();
-    final currentPatch = await storage.getPatchNumber();
-    
-    // Get platform
-    final platform = Platform.isAndroid ? 'android' : 'ios';
-    
-    // Call API
-    final url = Uri.parse('$apiUrl/api/check').replace(
-      queryParameters: {
-        'app_id': appId,
-        'version': version,
-        'platform': platform,
-        'patch': currentPatch.toString(),
-      },
-    );
-    
-    final response = await http.get(url);
-    
-    if (response.statusCode != 200) {
-      throw Exception('Check failed: ${response.statusCode}');
-    }
-    
-    final data = jsonDecode(response.body);
-    
-    if (data['has_update'] == true) {
-      return UpdateInfo.fromJson(data['patch']);
-    }
-    
-    return null;
-  }
-}
+**Cause:** Updater not connecting to YOUR backend
+
+**Solution:**
+1. Check base_url in config.rs
+2. Rebuild: `cargo build --release`
+3. Test backend with curl
+4. Check app_id matches
+5. Check version matches
+
+---
+
+### Problem: Binary won't run ("Permission denied")
+
+**Cause:** File not executable
+
+**Solution:**
+```bash
+chmod +x target/release/shorebird_updater
+./target/release/shorebird_updater --version
 ```
 
-### 3. Patch Downloader
+---
 
-**File:** `lib/src/patch_downloader.dart`
+## ✅ Final Checklist
 
-**Responsibilities:**
-- Download patch from CDN
-- Show progress
-- Verify SHA256
-- Save to temp directory
+### Build Phase
+- [ ] Repository cloned
+- [ ] config.rs modified with YOUR base_url
+- [ ] Rust installed
+- [ ] Build completed successfully
+- [ ] Binary created at `target/release/updater`
+- [ ] Binary renamed to `shorebird_updater`
+- [ ] Binary runs and shows version
 
-```dart
-class PatchDownloader {
-  final Function(double)? onProgress;
-  
-  PatchDownloader({this.onProgress});
-  
-  Future<File> download(UpdateInfo info) async {
-    // Get temp directory
-    final tempDir = await getTemporaryDirectory();
-    final filePath = '${tempDir.path}/patch_${info.patchNumber}.bin';
-    final file = File(filePath);
-    
-    // Download with progress
-    final request = http.Request('GET', Uri.parse(info.downloadUrl));
-    final response = await request.send();
-    
-    if (response.statusCode != 200) {
-      throw Exception('Download failed: ${response.statusCode}');
-    }
-    
-    final contentLength = response.contentLength ?? 0;
-    var downloadedBytes = 0;
-    
-    final sink = file.openWrite();
-    
-    await for (final chunk in response.stream) {
-      sink.add(chunk);
-      downloadedBytes += chunk.length;
-      
-      if (contentLength > 0) {
-        final progress = downloadedBytes / contentLength;
-        onProgress?.call(progress);
-      }
-    }
-    
-    await sink.close();
-    
-    // Verify hash
-    final bytes = await file.readAsBytes();
-    final hash = sha256.convert(bytes).toString();
-    
-    if (hash != info.sha256) {
-      await file.delete();
-      throw Exception('Hash mismatch: expected ${info.sha256}, got $hash');
-    }
-    
-    return file;
-  }
-}
-```
+### Testing Phase
+- [ ] Check command works
+- [ ] Connects to YOUR backend
+- [ ] Backend responds correctly
+- [ ] curl test confirms backend works
 
-### 4. Patch Installer
+### Installation Phase
+- [ ] Binary installed globally (optional)
+- [ ] Can run from any directory
+- [ ] Ready to integrate with Flutter
 
-**File:** `lib/src/patch_installer.dart`
+---
 
-**Responsibilities:**
-- Call Shorebird engine
-- Install patch
-- Update local patch number
-- Handle errors
+## 📊 Summary
 
-```dart
-class PatchInstaller {
-  Future<bool> install(File patchFile, int patchNumber) async {
-    try {
-      // Call Shorebird native method
-      // This uses the existing shorebird/updater implementation
-      final success = await _installPatch(patchFile.path);
-      
-      if (success) {
-        // Update local patch number
-        final storage = Storage();
-        await storage.setPatchNumber(patchNumber);
-        return true;
-      }
-      
-      return false;
-    } catch (e) {
-      print('Install failed: $e');
-      return false;
-    }
-  }
-  
-  Future<bool> _installPatch(String path) async {
-    // Platform-specific implementation
-    // Android: Use Shorebird AOT
-    // iOS: Use Shorebird interpreter
-    // This is already implemented in shorebird/updater
-  }
-}
-```
+### What You Built
+A custom updater tool that:
+- ✅ Checks YOUR Cloudflare Workers backend
+- ✅ Downloads patches from YOUR R2 storage
+- ✅ Works exactly like official Shorebird updater
+- ✅ Only required changing 1 line of code
 
-### 5. Storage
+### Time Spent
+- Clone: 1 min
+- Modify: 2 min
+- Install Rust: 5 min (if needed)
+- Build: 3 min
+- Test: 2 min
+- **Total: ~10-15 minutes**
 
-**File:** `lib/src/storage.dart`
+### Next Steps
+1. Integrate with Flutter app
+2. Test full update flow
+3. Deploy to production
+4. Monitor updates
 
-**Responsibilities:**
-- Store current patch number
-- Retrieve patch number
+---
 
-```dart
-class Storage {
-  static const _keyPatchNumber = 'shorebird_patch_number';
-  
-  Future<int> getPatchNumber() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_keyPatchNumber) ?? 0;
-  }
-  
-  Future<void> setPatchNumber(int number) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_keyPatchNumber, number);
-  }
-  
-  Future<void> clear() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyPatchNumber);
-  }
-}
-```
+## 🎓 Learning Points for Freshers
 
-### 6. Models
+### What You Learned
+1. **Git:** How to clone repositories
+2. **Rust:** Basic understanding of build process
+3. **Configuration:** How to modify source code
+4. **Binary compilation:** How code becomes executable
+5. **System integration:** Installing tools globally
+6. **Testing:** Verifying functionality
 
-**File:** `lib/src/models.dart`
+### Skills Gained
+- ✅ Command line proficiency
+- ✅ Source code modification
+- ✅ Build tool usage (cargo)
+- ✅ Debugging and troubleshooting
+- ✅ API testing with curl
 
-```dart
-class UpdateInfo {
-  final int patchNumber;
-  final String downloadUrl;
-  final String sha256;
-  final int sizeBytes;
-  
-  UpdateInfo({
-    required this.patchNumber,
-    required this.downloadUrl,
-    required this.sha256,
-    required this.sizeBytes,
-  });
-  
-  factory UpdateInfo.fromJson(Map<String, dynamic> json) {
-    return UpdateInfo(
-      patchNumber: json['patch_number'],
-      downloadUrl: json['download_url'],
-      sha256: json['sha256'],
-      sizeBytes: json['size_bytes'],
-    );
-  }
-}
-```
+---
 
-## 🎨 UI Components (Optional)
+## 🎉 Congratulations!
 
-### Progress Dialog
+You've successfully:
+- ✅ Built a custom updater tool
+- ✅ Connected it to YOUR backend
+- ✅ Tested it works
+- ✅ Ready for production use
 
-```dart
-class UpdateProgressDialog extends StatelessWidget {
-  final double progress;
-  
-  const UpdateProgressDialog({required this.progress});
-  
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('Updating...'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          LinearProgressIndicator(value: progress),
-          SizedBox(height: 16),
-          Text('${(progress * 100).toInt()}%'),
-        ],
-      ),
-    );
-  }
-}
-```
+**You're now ready to integrate this into your Flutter app!**
 
-## 📱 Example App
+---
 
-**File:** `example/lib/main.dart`
+## 📚 Additional Resources
 
-```dart
-import 'package:flutter/material.dart';
-import 'package:shorebird_updater/shorebird_updater.dart';
+- **Rust Book:** https://doc.rust-lang.org/book/
+- **Cargo Guide:** https://doc.rust-lang.org/cargo/
+- **Shorebird Docs:** https://docs.shorebird.dev/
+- **Flutter Integration:** See `04-FLUTTER-INTEGRATION.md`
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  final updater = ShorebirdUpdater(
-    apiUrl: 'https://api.yourapp.com',
-    appId: 'com.example.app',
-    onUpdateAvailable: (info) {
-      print('Update available: patch ${info.patchNumber}');
-    },
-    onUpdateDownloading: (progress) {
-      print('Downloading: ${(progress * 100).toInt()}%');
-    },
-    onUpdateInstalled: () {
-      print('Update installed!');
-    },
-    onError: (error) {
-      print('Error: $error');
-    },
-  );
-  
-  // Check on start
-  await updater.checkAndUpdate();
-  
-  runApp(MyApp(updater: updater));
-}
-
-class MyApp extends StatelessWidget {
-  final ShorebirdUpdater updater;
-  
-  const MyApp({required this.updater});
-  
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: HomePage(updater: updater),
-    );
-  }
-}
-
-class HomePage extends StatefulWidget {
-  final ShorebirdUpdater updater;
-  
-  const HomePage({required this.updater});
-  
-  @override
-  State<HomePage> createState() => _HomePageState();
-}
-
-class _HomePageState extends State<HomePage> {
-  int? currentPatch;
-  
-  @override
-  void initState() {
-    super.initState();
-    _loadPatchNumber();
-  }
-  
-  Future<void> _loadPatchNumber() async {
-    final patch = await widget.updater.getCurrentPatchNumber();
-    setState(() => currentPatch = patch);
-  }
-  
-  Future<void> _checkForUpdate() async {
-    final hasUpdate = await widget.updater.checkForUpdate();
-    
-    if (!hasUpdate) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No updates available')),
-      );
-    }
-  }
-  
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('Shorebird Updater Example')),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('Current Patch: ${currentPatch ?? 0}'),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _checkForUpdate,
-              child: Text('Check for Update'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-```
-
-## 🧪 Testing
-
-### Unit Tests
-
-```dart
-void main() {
-  group('UpdateChecker', () {
-    test('returns null when no update', () async {
-      // Mock API response
-      // Test no update scenario
-    });
-    
-    test('returns UpdateInfo when update available', () async {
-      // Mock API response
-      // Test update available scenario
-    });
-  });
-  
-  group('Storage', () {
-    test('stores and retrieves patch number', () async {
-      final storage = Storage();
-      await storage.setPatchNumber(5);
-      final number = await storage.getPatchNumber();
-      expect(number, 5);
-    });
-  });
-}
-```
-
-## 📋 Modifications from Original
-
-### Changes needed from shorebird/updater:
-
-1. **API Endpoint**
-   - Change from Shorebird API to custom API
-   - Update URL structure
-   - Update query parameters
-
-2. **Authentication**
-   - Remove Shorebird auth
-   - Add custom API key (optional)
-
-3. **Response Format**
-   - Parse custom API response
-   - Map to UpdateInfo model
-
-4. **Configuration**
-   - Add apiUrl parameter
-   - Add appId parameter
-   - Remove Shorebird-specific config
-
-## ✅ Success Criteria
-
-- [ ] Package compiles without errors
-- [ ] Checks for updates on app start
-- [ ] Downloads patches from CDN
-- [ ] Verifies SHA256 hash
-- [ ] Installs patches successfully
-- [ ] Updates local patch number
-- [ ] Handles errors gracefully
-- [ ] Works on Android and iOS
-- [ ] Example app demonstrates usage
-
-## 🔄 Next Steps
-
-After client is complete:
-1. Test in real Flutter app
-2. Test end-to-end flow
-3. Document usage
-4. Publish package (optional)
+**Need help?** Review this document step-by-step. Every action is explained in detail!
