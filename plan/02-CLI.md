@@ -1,591 +1,535 @@
-# CLI Implementation Plan
+# 02 - CLI TOOL IMPLEMENTATION
 
-## 🎯 Goal
+**Time**: 60 minutes  
+**Difficulty**: Medium  
+**Platform**: Dart CLI (macOS)
 
-Create a Dart CLI tool that wraps `shorebird patch` and automatically uploads patches to your backend.
+---
 
-## 📊 Architecture
+## Overview
+
+Build a CLI tool that:
+1. Downloads patches from Shorebird cloud (after `shorebird patch` command)
+2. Uploads patches to your Cloudflare R2
+3. Updates D1 database with metadata
+
+**Result**: Command `shorebird_custom_server upload <patch_file>`
+
+**IMPORTANT**: This is Option C workflow - we don't extract patches directly from Shorebird CLI. Instead, we download from Shorebird cloud and re-upload to Cloudflare.
+
+---
+
+## Prerequisites
+
+✅ Cloudflare backend deployed (Step 1)  
+✅ Dart SDK installed (`dart --version`)  
+✅ Shorebird CLI installed (`shorebird --version`)  
+✅ Flutter project with Shorebird initialized
+
+---
+
+## Workflow Understanding
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                  shorebird_custom_server                    │
-│                                                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-│  │  Config  │→ │ Shorebird│→ │  Patch   │→ │ Uploader │  │
-│  │  Loader  │  │  Runner  │  │  Finder  │  │          │  │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
-└─────────────────────────────────────────────────────────────┘
+Developer runs:
+  shorebird patch android
+  → Uploads to Shorebird cloud ✅
+
+Developer manually:
+  1. Go to Shorebird dashboard
+  2. Download patch file
+  3. Run: shorebird_custom_server upload patch_file
+  → Uploads to Cloudflare R2 ✅
+  → Updates D1 metadata ✅
+
+End user:
+  App checks Cloudflare for updates ✅
 ```
 
-## 📁 File Structure
+---
 
-```
-cli/
-├── pubspec.yaml              # Dart project config
-├── .env.example             # Environment template
-├── .gitignore              # Git ignore rules
-├── bin/
-│   └── shorebird_custom_server.dart  # Main entry point
-├── lib/
-│   ├── config.dart          # Load .env configuration
-│   ├── shorebird_runner.dart # Execute shorebird commands
-│   ├── patch_finder.dart    # Find .vmcode files
-│   ├── uploader.dart        # Upload to backend API
-│   ├── models.dart          # Data models
-│   └── utils.dart           # Utility functions
-└── test/
-    └── cli_test.dart        # Unit tests
+## Step 1: Create CLI Project
+
+### 1.1 Create Project Structure
+
+```bash
+cd ~/Desktop/codepush
+mkdir -p cli/bin
+cd cli
 ```
 
-## 📦 Dependencies
+### 1.2 Create pubspec.yaml
 
-### pubspec.yaml
 ```yaml
 name: shorebird_custom_server
-description: CLI tool to upload Shorebird patches to custom server
+description: CLI tool to upload Shorebird patches to Cloudflare
 version: 1.0.0
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
-  args: ^2.4.2          # Command-line argument parsing
-  http: ^1.1.0          # HTTP client for uploads
-  crypto: ^3.0.3        # SHA256 hashing
-  path: ^1.8.3          # Path manipulation
-  yaml: ^3.1.2          # Parse pubspec.yaml
-  dotenv: ^4.2.0        # Load .env files
-
-dev_dependencies:
-  lints: ^3.0.0
-  test: ^1.24.0
+  args: ^2.4.0
+  http: ^1.1.0
+  crypto: ^3.0.3
+  path: ^1.8.3
 
 executables:
   shorebird_custom_server:
 ```
 
-## 🔧 Configuration
+### 1.3 Install Dependencies
 
-### .env.example
-```env
-# Backend API
-API_URL=http://localhost:3000
-API_KEY=your-secret-api-key
-
-# App Configuration
-APP_ID=com.yourapp.name
-
-# Optional: Shorebird CLI path
-SHOREBIRD_PATH=shorebird
-```
-
-## 🎯 Command Structure
-
-### Basic Usage
 ```bash
-shorebird_custom_server patch <platform> [options]
+dart pub get
 ```
 
-### Examples
-```bash
-# Patch Android
-shorebird_custom_server patch android
+---
 
-# Patch iOS
-shorebird_custom_server patch ios
+## Step 2: Implement CLI Tool
 
-# With custom config
-shorebird_custom_server patch android --config=.env.production
+### 2.1 Create bin/shorebird_custom_server.dart
 
-# Dry run (don't upload)
-shorebird_custom_server patch android --dry-run
-
-# Verbose output
-shorebird_custom_server patch android --verbose
-```
-
-### Arguments
-- `patch`: Command (required)
-- `<platform>`: android or ios (required)
-
-### Options
-- `--config=<path>`: Custom .env file path
-- `--dry-run`: Run without uploading
-- `--verbose`: Show detailed output
-- `--help`: Show help message
-
-## 🔄 Execution Flow
-
-### Main Flow
-```
-1. Parse command-line arguments
-   ↓
-2. Load configuration from .env
-   ↓
-3. Validate configuration
-   ↓
-4. Run shorebird patch <platform>
-   ↓
-5. Wait for shorebird to complete
-   ↓
-6. Find generated .vmcode file
-   ↓
-7. Read app version from pubspec.yaml
-   ↓
-8. Calculate next patch number
-   ↓
-9. Calculate SHA256 hash
-   ↓
-10. Upload to backend API
-   ↓
-11. Display success message
-```
-
-### Error Handling
-```
-At each step:
-- Catch errors
-- Display user-friendly message
-- Exit with appropriate code
-- Clean up temp files
-```
-
-## 📝 Implementation Details
-
-### 1. Main Entry Point
-
-**File:** `bin/shorebird_custom_server.dart`
-
-**Responsibilities:**
-- Parse command-line arguments
-- Load configuration
-- Orchestrate the flow
-- Handle errors
-- Display output
-
-**Code chi tiết (Fresher-friendly):**
 ```dart
-void main(List<String> args) async {
+import 'dart:io';
+import 'dart:convert';
+import 'package:args/args.dart';
+import 'package:http/http.dart' as http;
+import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as path;
+
+void main(List<String> arguments) async {
+  final parser = ArgParser()
+    ..addCommand('upload')
+    ..addCommand('check');
+
   try {
-    // Parse args
-    final argParser = ArgParser()
-      ..addOption('config', defaultsTo: '.env')
-      ..addFlag('dry-run', defaultsTo: false)
-      ..addFlag('verbose', defaultsTo: false)
-      ..addFlag('help', abbr: 'h', negatable: false);
+    final results = parser.parse(arguments);
     
-    final results = argParser.parse(args);
-    
-    if (results['help']) {
-      printHelp();
-      exit(0);
-    }
-    
-    // Validate command
-    if (results.rest.length < 2) {
-      print('Error: Missing command or platform');
+    if (results.command == null) {
+      printUsage(parser);
       exit(1);
     }
+
+    final command = results.command!;
     
-    final command = results.rest[0]; // "patch"
-    final platform = results.rest[1]; // "android" or "ios"
-    
-    // Load config
-    final config = Config.load(results['config']);
-    
-    // Run shorebird
-    await ShorebirdRunner.run(command, platform);
-    
-    // Find patch file
-    final patchFile = await PatchFinder.find(platform);
-    
-    // Get metadata
-    final version = await getAppVersion();
-    final patchNumber = await getNextPatchNumber(config, platform);
-    
-    // Upload
-    if (!results['dry-run']) {
-      await Uploader.upload(
-        config: config,
-        file: patchFile,
-        platform: platform,
-        version: version,
-        patchNumber: patchNumber,
-      );
+    if (command.name == 'upload') {
+      await handleUpload(command.arguments);
+    } else if (command.name == 'check') {
+      await handleCheck(command.arguments);
     }
-    
-    print('✓ Success!');
-    
   } catch (e) {
     print('Error: $e');
     exit(1);
   }
 }
-```
 
-### 2. Config Loader
+void printUsage(ArgParser parser) {
+  print('''
+Shorebird Custom Server CLI
 
-**File:** `lib/config.dart`
+Usage:
+  shorebird_custom_server upload <patch_file> [options]
+  shorebird_custom_server check [options]
 
-**Responsibilities:**
-- Load .env file
-- Validate required fields
-- Provide config object
+Commands:
+  upload    Upload a patch file to Cloudflare
+  check     Check for available updates
 
-**Required Fields:**
-- API_URL
-- API_KEY
-- APP_ID
+Upload Options:
+  --api-url=<url>           Cloudflare Worker URL (required)
+  --api-key=<key>           API key for authentication (required)
+  --app-id=<id>             App ID from shorebird.yaml (required)
+  --release-version=<ver>   Release version (e.g., 1.0.0+1) (required)
+  --platform=<platform>     Platform: android or ios (required)
+  --arch=<arch>             Architecture: aarch64, x86_64, etc (required)
+  --patch-number=<num>      Patch number (required)
 
-**Validation:**
-- API_URL must be valid URL
-- API_KEY must not be empty
-- APP_ID must match pattern
+Check Options:
+  --api-url=<url>           Cloudflare Worker URL (required)
+  --app-id=<id>             App ID (required)
+  --release-version=<ver>   Release version (required)
+  --platform=<platform>     Platform (required)
+  --arch=<arch>             Architecture (required)
 
-### 3. Shorebird Runner
-
-**File:** `lib/shorebird_runner.dart`
-
-**Responsibilities:**
-- Execute shorebird CLI
-- Stream output to console
-- Wait for completion
-- Handle errors
-
-**Process:**
-```dart
-static Future<void> run(String command, String platform) async {
-  print('Running: shorebird $command $platform');
-  
-  final process = await Process.start(
-    'shorebird',
-    [command, platform],
-  );
-  
-  // Stream stdout
-  process.stdout.transform(utf8.decoder).listen((data) {
-    stdout.write(data);
-  });
-  
-  // Stream stderr
-  process.stderr.transform(utf8.decoder).listen((data) {
-    stderr.write(data);
-  });
-  
-  final exitCode = await process.exitCode;
-  
-  if (exitCode != 0) {
-    throw Exception('Shorebird failed with exit code $exitCode');
-  }
+Example:
+  shorebird_custom_server upload patch.bin \\
+    --api-url=https://your-worker.workers.dev \\
+    --api-key=your-api-key \\
+    --app-id=com.example.app \\
+    --release-version=1.0.0+1 \\
+    --platform=android \\
+    --arch=aarch64 \\
+    --patch-number=1
+''');
 }
-```
 
-### 4. Patch Finder
+Future<void> handleUpload(List<String> args) async {
+  final parser = ArgParser()
+    ..addOption('api-url', mandatory: true)
+    ..addOption('api-key', mandatory: true)
+    ..addOption('app-id', mandatory: true)
+    ..addOption('release-version', mandatory: true)
+    ..addOption('platform', mandatory: true)
+    ..addOption('arch', mandatory: true)
+    ..addOption('patch-number', mandatory: true);
 
-**File:** `lib/patch_finder.dart`
-
-**Responsibilities:**
-- Search for .vmcode files
-- Find the latest one
-- Return file path
-
-**Search Locations:**
-```
-Android:
-- build/app/intermediates/shorebird/
-- build/shorebird/
-
-iOS:
-- build/ios/shorebird/
-- build/shorebird/
-```
-
-**Algorithm:**
-```dart
-static Future<File> find(String platform) async {
-  final searchPaths = _getSearchPaths(platform);
+  final results = parser.parse(args);
   
-  for (final searchPath in searchPaths) {
-    final dir = Directory(searchPath);
-    if (!dir.existsSync()) continue;
-    
-    final files = dir
-      .listSync(recursive: true)
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.vmcode'))
-      .toList();
-    
-    if (files.isNotEmpty) {
-      // Return the most recent file
-      files.sort((a, b) => 
-        b.statSync().modified.compareTo(a.statSync().modified)
-      );
-      return files.first;
-    }
+  if (results.rest.isEmpty) {
+    print('Error: Patch file path required');
+    exit(1);
   }
-  
-  throw Exception('Patch file not found');
-}
-```
 
-### 5. Uploader
+  final patchFilePath = results.rest[0];
+  final patchFile = File(patchFilePath);
 
-**File:** `lib/uploader.dart`
+  if (!patchFile.existsSync()) {
+    print('Error: Patch file not found: $patchFilePath');
+    exit(1);
+  }
 
-**Responsibilities:**
-- Calculate SHA256 hash
-- Prepare multipart request
-- Upload to backend
-- Handle response
+  print('📦 Reading patch file...');
+  final patchBytes = await patchFile.readAsBytes();
+  final fileSize = patchBytes.length;
+  print('   Size: ${(fileSize / 1024).toStringAsFixed(2)} KB');
 
-**Upload Process:**
-```dart
-static Future<UploadResponse> upload({
-  required Config config,
-  required File file,
-  required String platform,
-  required String version,
-  required int patchNumber,
-}) async {
-  // Calculate hash
-  final bytes = await file.readAsBytes();
-  final hash = sha256.convert(bytes).toString();
+  print('🔐 Calculating SHA256...');
+  final hash = sha256.convert(patchBytes);
+  final hashHex = hash.toString();
+  print('   Hash: $hashHex');
+
+  print('☁️  Uploading to Cloudflare...');
   
-  print('File size: ${bytes.length} bytes');
-  print('SHA256: $hash');
-  
-  // Prepare request
-  final uri = Uri.parse('${config.apiUrl}/api/upload');
-  final request = http.MultipartRequest('POST', uri);
-  
-  // Add headers
-  request.headers['X-API-Key'] = config.apiKey;
-  
-  // Add file
-  request.files.add(
-    http.MultipartFile.fromBytes(
-      'file',
-      bytes,
-      filename: 'patch.vmcode',
-    ),
+  final apiUrl = results['api-url'];
+  final apiKey = results['api-key'];
+  final appId = results['app-id'];
+  final releaseVersion = results['release-version'];
+  final platform = results['platform'];
+  final arch = results['arch'];
+  final patchNumber = results['patch-number'];
+
+  final request = http.MultipartRequest(
+    'POST',
+    Uri.parse('$apiUrl/api/upload'),
   );
-  
-  // Add fields
-  request.fields['app_id'] = config.appId;
+
+  request.headers['X-API-Key'] = apiKey;
+  request.files.add(http.MultipartFile.fromBytes(
+    'file',
+    patchBytes,
+    filename: 'patch.bin',
+  ));
+  request.fields['app_id'] = appId;
+  request.fields['release_version'] = releaseVersion;
   request.fields['platform'] = platform;
-  request.fields['version'] = version;
-  request.fields['patch_number'] = patchNumber.toString();
-  
-  // Send request
-  print('Uploading to ${config.apiUrl}...');
+  request.fields['arch'] = arch;
+  request.fields['patch_number'] = patchNumber;
+
   final response = await request.send();
-  
-  // Handle response
+  final responseBody = await response.stream.bytesToString();
+
   if (response.statusCode == 200) {
-    final body = await response.stream.bytesToString();
-    return UploadResponse.fromJson(jsonDecode(body));
+    final json = jsonDecode(responseBody);
+    print('✅ Upload successful!');
+    print('');
+    print('Patch Details:');
+    print('  App ID: $appId');
+    print('  Version: $releaseVersion');
+    print('  Platform: $platform');
+    print('  Arch: $arch');
+    print('  Patch #: $patchNumber');
+    print('  SHA256: $hashHex');
+    print('  Download URL: ${json['patch']['download_url']}');
   } else {
-    final body = await response.stream.bytesToString();
-    throw Exception('Upload failed: $body');
+    print('❌ Upload failed: ${response.statusCode}');
+    print('Response: $responseBody');
+    exit(1);
+  }
+}
+
+Future<void> handleCheck(List<String> args) async {
+  final parser = ArgParser()
+    ..addOption('api-url', mandatory: true)
+    ..addOption('app-id', mandatory: true)
+    ..addOption('release-version', mandatory: true)
+    ..addOption('platform', mandatory: true)
+    ..addOption('arch', mandatory: true);
+
+  final results = parser.parse(args);
+
+  final apiUrl = results['api-url'];
+  final appId = results['app-id'];
+  final releaseVersion = results['release-version'];
+  final platform = results['platform'];
+  final arch = results['arch'];
+
+  print('🔍 Checking for updates...');
+  print('   App: $appId');
+  print('   Version: $releaseVersion');
+  print('   Platform: $platform');
+  print('   Arch: $arch');
+
+  final response = await http.post(
+    Uri.parse('$apiUrl/api/v1/patches/check'),
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({
+      'app_id': appId,
+      'release_version': releaseVersion,
+      'platform': platform,
+      'arch': arch,
+      'channel': 'stable',
+      'client_id': 'cli-test',
+    }),
+  );
+
+  if (response.statusCode == 200) {
+    final json = jsonDecode(response.body);
+    
+    if (json['patch_available'] == true) {
+      final patch = json['patch'];
+      print('✅ Update available!');
+      print('');
+      print('Patch Details:');
+      print('  Patch #: ${patch['number']}');
+      print('  SHA256: ${patch['hash']}');
+      print('  Download: ${patch['download_url']}');
+    } else {
+      print('✅ No updates available');
+    }
+  } else {
+    print('❌ Check failed: ${response.statusCode}');
+    print('Response: ${response.body}');
+    exit(1);
   }
 }
 ```
 
-### 6. Models
+---
 
-**File:** `lib/models.dart`
+## Step 3: Build CLI Tool
 
-**Config Model:**
-```dart
-class Config {
-  final String apiUrl;
-  final String apiKey;
-  final String appId;
-  
-  Config({
-    required this.apiUrl,
-    required this.apiKey,
-    required this.appId,
-  });
-  
-  static Config load(String path) {
-    // Load from .env file
-    // Validate fields
-    // Return Config instance
-  }
-}
-```
+### 3.1 Compile to Native Binary
 
-**UploadResponse Model:**
-```dart
-class UploadResponse {
-  final bool success;
-  final PatchInfo? patch;
-  final String? error;
-  
-  UploadResponse({
-    required this.success,
-    this.patch,
-    this.error,
-  });
-  
-  factory UploadResponse.fromJson(Map<String, dynamic> json) {
-    return UploadResponse(
-      success: json['success'],
-      patch: json['patch'] != null 
-        ? PatchInfo.fromJson(json['patch']) 
-        : null,
-      error: json['error'],
-    );
-  }
-}
-```
-
-**PatchInfo Model:**
-```dart
-class PatchInfo {
-  final int id;
-  final String appId;
-  final String platform;
-  final int patchNumber;
-  final String version;
-  final String downloadUrl;
-  final String sha256;
-  final int sizeBytes;
-  
-  PatchInfo({
-    required this.id,
-    required this.appId,
-    required this.platform,
-    required this.patchNumber,
-    required this.version,
-    required this.downloadUrl,
-    required this.sha256,
-    required this.sizeBytes,
-  });
-  
-  factory PatchInfo.fromJson(Map<String, dynamic> json) {
-    // Parse JSON
-  }
-}
-```
-
-## 🔨 Build & Install
-
-### Development
-```bash
-cd cli
-dart pub get
-dart run bin/shorebird_custom_server.dart patch android
-```
-
-### Compile to Binary
 ```bash
 dart compile exe bin/shorebird_custom_server.dart -o shorebird_custom_server
 ```
 
-### Install Globally (macOS/Linux)
+**Output**:
+```
+Generated: /Users/neun/Desktop/codepush/cli/shorebird_custom_server
+```
+
+### 3.2 Test Binary
+
 ```bash
-sudo mv shorebird_custom_server /usr/local/bin/
+./shorebird_custom_server
+```
+
+Should show usage instructions.
+
+### 3.3 Install Globally (Optional)
+
+```bash
+sudo cp shorebird_custom_server /usr/local/bin/
 sudo chmod +x /usr/local/bin/shorebird_custom_server
 ```
 
-### Install Globally (Windows)
+**Verify**:
 ```bash
-move shorebird_custom_server.exe C:\Windows\System32\
+shorebird_custom_server
 ```
 
-## 🧪 Testing
+---
 
-### Manual Testing
+## Step 4: Usage Workflow
+
+### 4.1 Create Patch with Shorebird
+
 ```bash
-# Test in Flutter project
-cd your-flutter-project
-shorebird_custom_server patch android --dry-run --verbose
+cd /path/to/your/flutter/project
+shorebird patch android
 ```
 
-### Unit Tests
-```dart
-// test/cli_test.dart
-
-void main() {
-  group('Config', () {
-    test('loads valid config', () {
-      // Test config loading
-    });
-    
-    test('throws on missing fields', () {
-      // Test validation
-    });
-  });
-  
-  group('PatchFinder', () {
-    test('finds vmcode file', () {
-      // Test file finding
-    });
-    
-    test('throws when not found', () {
-      // Test error handling
-    });
-  });
-}
+**Output**:
+```
+✓ Building patch...
+✓ Uploading to Shorebird...
+✓ Patch 1 created successfully!
 ```
 
-## 📊 Output Examples
+### 4.2 Download Patch from Shorebird
 
-### Success Output
+**Manual Method** (for now):
+1. Go to https://console.shorebird.dev
+2. Navigate to your app
+3. Find the patch you just created
+4. Click "Download" button
+5. Save as `patch_1.bin`
+
+**TODO**: Automate this with Shorebird API
+
+### 4.3 Upload to Cloudflare
+
+```bash
+shorebird_custom_server upload patch_1.bin \
+  --api-url=https://your-worker.workers.dev \
+  --api-key=your-api-key \
+  --app-id=com.example.app \
+  --release-version=1.0.0+1 \
+  --platform=android \
+  --arch=aarch64 \
+  --patch-number=1
 ```
-Running: shorebird patch android
-[shorebird output...]
-✓ Patch created successfully
 
-Finding patch file...
-✓ Found: build/shorebird/patch.vmcode
-
-Reading app version...
-✓ Version: 1.0.0
-
-Calculating hash...
-✓ SHA256: abc123...
-
-Uploading to https://api.yourapp.com...
-✓ Upload complete
+**Output**:
+```
+📦 Reading patch file...
+   Size: 45.23 KB
+🔐 Calculating SHA256...
+   Hash: abc123def456...
+☁️  Uploading to Cloudflare...
+✅ Upload successful!
 
 Patch Details:
-  App ID: com.yourapp.name
+  App ID: com.example.app
+  Version: 1.0.0+1
   Platform: android
-  Version: 1.0.0
-  Patch Number: 5
-  Download URL: https://cdn.yourapp.com/patches/...
-  Size: 1.2 MB
-
-✓ Success! Patch deployed.
+  Arch: aarch64
+  Patch #: 1
+  SHA256: abc123def456...
+  Download URL: https://pub-xxx.r2.dev/...
 ```
 
-### Error Output
+### 4.4 Verify Upload
+
+```bash
+shorebird_custom_server check \
+  --api-url=https://your-worker.workers.dev \
+  --app-id=com.example.app \
+  --release-version=1.0.0+1 \
+  --platform=android \
+  --arch=aarch64
 ```
-Running: shorebird patch android
-Error: Shorebird command failed with exit code 1
 
-Please check:
-- Shorebird CLI is installed
-- You're in a Flutter project
-- Project is initialized with Shorebird
+**Output**:
+```
+🔍 Checking for updates...
+   App: com.example.app
+   Version: 1.0.0+1
+   Platform: android
+   Arch: aarch64
+✅ Update available!
+
+Patch Details:
+  Patch #: 1
+  SHA256: abc123def456...
+  Download: https://pub-xxx.r2.dev/...
 ```
 
-## ✅ Success Criteria
+---
 
-- [ ] CLI compiles to binary
-- [ ] Runs shorebird commands
-- [ ] Finds patch files
-- [ ] Calculates SHA256
-- [ ] Uploads to backend
-- [ ] Handles errors gracefully
-- [ ] Shows progress messages
-- [ ] Works on macOS/Linux/Windows
+## Step 5: Create Config File (Optional)
 
-## 🔄 Next Steps
+To avoid typing all parameters every time, create a config file:
 
-After CLI is complete:
-1. Test with backend
-2. Proceed to `03-CLIENT.md`
+### 5.1 Create .shorebird_server.yaml
+
+```yaml
+api_url: https://your-worker.workers.dev
+api_key: your-api-key
+app_id: com.example.app
+```
+
+### 5.2 Update CLI to Read Config
+
+Add to CLI code:
+```dart
+// Read from ~/.shorebird_server.yaml or ./.shorebird_server.yaml
+// Merge with command-line arguments
+// Command-line args override config file
+```
+
+---
+
+## Architecture Notes
+
+### Why This Approach?
+
+1. **Shorebird CLI is closed-source** - Can't extract patches directly
+2. **Shorebird uploads to their cloud** - We download from there
+3. **Re-upload to Cloudflare** - Gives us control over distribution
+
+### Limitations
+
+1. **Manual download step** - Need to automate with Shorebird API
+2. **Requires Shorebird account** - Still depends on their service
+3. **Double upload** - Patch goes to Shorebird, then Cloudflare
+
+### Future Improvements
+
+1. **Shorebird API integration** - Auto-download patches
+2. **Batch upload** - Upload multiple patches at once
+3. **Diff detection** - Only upload if changed
+4. **Rollback support** - Mark patches as inactive
+
+---
+
+## Troubleshooting
+
+### "Patch file not found"
+
+Check file path is correct:
+```bash
+ls -la patch_1.bin
+```
+
+### "Invalid API key"
+
+Check API key in Cloudflare Worker:
+```bash
+# In backend folder
+cat wrangler.toml | grep API_KEY
+```
+
+### "Upload failed: 400"
+
+Missing required field. Check all parameters:
+- app_id
+- release_version
+- platform
+- arch
+- patch_number
+
+### "SHA256 mismatch"
+
+Patch file corrupted during download. Re-download from Shorebird.
+
+---
+
+## Summary
+
+**What you built**:
+- ✅ CLI tool to upload patches
+- ✅ SHA256 hash calculation
+- ✅ Cloudflare R2 upload
+- ✅ D1 metadata update
+- ✅ Check command for verification
+
+**Time spent**: ~60 minutes
+
+**Next**: Integrate client (03-CLIENT-NEW.md)
+
+---
+
+## Key Takeaways
+
+1. **Option C workflow** - Download from Shorebird, upload to Cloudflare
+2. **Manual step required** - Download patch from Shorebird dashboard
+3. **Architecture support** - Must specify arch (aarch64, x86_64, etc)
+4. **SHA256 verification** - Ensures patch integrity
+5. **Future automation** - Can integrate Shorebird API to auto-download
+
+---
+
+For complete implementation details and error handling, refer to the source code above.

@@ -1,348 +1,222 @@
-# Database Schema Plan
+# 04 - DATABASE SCHEMA (D1)
 
-## 🎯 Goal
+**Platform**: Cloudflare D1 (SQLite)
 
-Design a minimal database schema to store patch metadata and support update queries.
+---
 
-## 📊 Database Choice
+## Overview
 
-### Development: SQLite
-- Zero configuration
-- File-based
-- Perfect for MVP
-- Easy to backup
+Database schema for storing patch metadata.
 
-### Production: SQLite or PostgreSQL
-- SQLite: Up to 10K users
-- PostgreSQL: 10K+ users, multiple servers
+**CRITICAL UPDATES**:
+- Added `arch` column (aarch64, x86_64, x86, arm)
+- Updated unique constraint to include arch
+- Updated indexes for performance
 
-## 📋 Schema Design
+---
 
-### patches Table
+## Complete Schema
 
 ```sql
-CREATE TABLE IF NOT EXISTS patches (
+-- Patches table
+CREATE TABLE patches (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   app_id TEXT NOT NULL,
-  platform TEXT NOT NULL CHECK(platform IN ('android', 'ios')),
+  release_version TEXT NOT NULL,
   patch_number INTEGER NOT NULL,
-  version TEXT NOT NULL,
+  platform TEXT NOT NULL CHECK(platform IN ('android', 'ios')),
+  arch TEXT NOT NULL CHECK(arch IN ('aarch64', 'x86_64', 'x86', 'arm')),
   download_url TEXT NOT NULL,
-  sha256 TEXT NOT NULL,
-  size_bytes INTEGER NOT NULL,
+  hash TEXT NOT NULL,
+  hash_signature TEXT,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  
-  UNIQUE(app_id, platform, patch_number)
+  created_at INTEGER NOT NULL,
+  UNIQUE(app_id, release_version, platform, arch, patch_number)
+);
+
+-- Index for fast lookups
+CREATE INDEX idx_patches_lookup 
+ON patches(app_id, release_version, platform, arch, active, patch_number);
+
+-- API keys table
+CREATE TABLE api_keys (
+  key TEXT PRIMARY KEY,
+  app_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
 );
 ```
 
-### Field Descriptions
+---
 
-| Field | Type | Description | Example |
-|-------|------|-------------|---------|
-| id | INTEGER | Auto-increment primary key | 1, 2, 3... |
-| app_id | TEXT | App identifier | com.yourapp.name |
-| platform | TEXT | android or ios | android |
-| patch_number | INTEGER | Sequential patch number | 1, 2, 3... |
-| version | TEXT | App version (semver) | 1.0.0 |
-| download_url | TEXT | CDN URL for patch file | https://cdn.../patch.bin |
-| sha256 | TEXT | Hash for verification | abc123... |
-| size_bytes | INTEGER | File size in bytes | 1024000 |
-| active | INTEGER | Enable/disable (1/0) | 1 |
-| created_at | TEXT | ISO 8601 timestamp | 2024-01-01T12:00:00Z |
+## Field Descriptions
 
-### Indexes
+### patches table
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | INTEGER | Auto-increment primary key |
+| app_id | TEXT | App bundle ID (e.g., com.example.app) |
+| release_version | TEXT | Release version (e.g., 1.0.0+1) |
+| patch_number | INTEGER | Patch number (starts at 1) |
+| platform | TEXT | android or ios |
+| arch | TEXT | aarch64, x86_64, x86, or arm |
+| download_url | TEXT | R2 public URL for patch file |
+| hash | TEXT | SHA256 hash (hex string) |
+| hash_signature | TEXT | Optional signature for verification |
+| active | INTEGER | 1 = active, 0 = rolled back |
+| created_at | INTEGER | Unix timestamp |
+
+### api_keys table
+
+| Field | Type | Description |
+|-------|------|-------------|
+| key | TEXT | API key (primary key) |
+| app_id | TEXT | Associated app ID |
+| created_at | INTEGER | Unix timestamp |
+
+---
+
+## Unique Constraint
 
 ```sql
--- For fast lookup by app_id + platform + active
-CREATE INDEX IF NOT EXISTS idx_patches_lookup 
-ON patches(app_id, platform, active, patch_number);
-
--- For version-specific queries
-CREATE INDEX IF NOT EXISTS idx_patches_version 
-ON patches(app_id, platform, version, active);
-
--- For time-based queries
-CREATE INDEX IF NOT EXISTS idx_patches_created 
-ON patches(created_at DESC);
+UNIQUE(app_id, release_version, platform, arch, patch_number)
 ```
 
-## 🔍 Query Patterns
+**Why**: Prevents duplicate patches for same app/version/platform/arch combination.
 
-### 1. Check for Update
+**Example**: Can have:
+- `com.example.app / 1.0.0+1 / android / aarch64 / patch 1` ✅
+- `com.example.app / 1.0.0+1 / android / x86_64 / patch 1` ✅
+- `com.example.app / 1.0.0+1 / ios / aarch64 / patch 1` ✅
 
-**Use Case:** Client checks if newer patch exists
+But NOT:
+- `com.example.app / 1.0.0+1 / android / aarch64 / patch 1` (duplicate) ❌
+
+---
+
+## Query Examples
+
+### Check for Update
 
 ```sql
-SELECT 
-  id,
-  patch_number,
-  download_url,
-  sha256,
-  size_bytes
+SELECT patch_number, download_url, hash, hash_signature
 FROM patches
-WHERE app_id = ?
-  AND platform = ?
-  AND version = ?
-  AND patch_number > ?
+WHERE app_id = 'com.example.app'
+  AND release_version = '1.0.0+1'
+  AND platform = 'android'
+  AND arch = 'aarch64'
   AND active = 1
 ORDER BY patch_number DESC
 LIMIT 1;
 ```
 
-**Parameters:**
-- app_id: 'com.yourapp.name'
-- platform: 'android'
-- version: '1.0.0'
-- current_patch: 3
-
-**Result:**
-- Returns latest patch if available
-- Returns empty if no update
-
-### 2. Insert New Patch
-
-**Use Case:** CLI uploads new patch
+### Insert Patch
 
 ```sql
 INSERT INTO patches (
-  app_id,
-  platform,
-  patch_number,
-  version,
-  download_url,
-  sha256,
-  size_bytes
-) VALUES (?, ?, ?, ?, ?, ?, ?);
+  app_id, release_version, patch_number, platform, arch,
+  download_url, hash, hash_signature, created_at
+) VALUES (
+  'com.example.app',
+  '1.0.0+1',
+  1,
+  'android',
+  'aarch64',
+  'https://pub-xxx.r2.dev/...',
+  'abc123def456...',
+  NULL,
+  1704067200
+);
 ```
 
-**Conflict Handling:**
-```sql
--- If patch_number already exists, fail
--- UNIQUE constraint will throw error
-```
-
-### 3. Get Next Patch Number
-
-**Use Case:** CLI needs to know next patch number
-
-```sql
-SELECT COALESCE(MAX(patch_number), 0) + 1 as next_patch
-FROM patches
-WHERE app_id = ?
-  AND platform = ?;
-```
-
-### 4. List All Patches
-
-**Use Case:** Admin dashboard
-
-```sql
-SELECT 
-  id,
-  app_id,
-  platform,
-  patch_number,
-  version,
-  size_bytes,
-  active,
-  created_at
-FROM patches
-WHERE app_id = ?
-ORDER BY created_at DESC;
-```
-
-### 5. Disable Patch (Rollback)
-
-**Use Case:** Rollback bad patch
+### Rollback Patch
 
 ```sql
 UPDATE patches
 SET active = 0
-WHERE app_id = ?
-  AND platform = ?
-  AND patch_number = ?;
+WHERE app_id = 'com.example.app'
+  AND release_version = '1.0.0+1'
+  AND platform = 'android'
+  AND arch = 'aarch64'
+  AND patch_number = 1;
 ```
 
-### 6. Get Patch Statistics
-
-**Use Case:** Analytics
+### List All Patches for App
 
 ```sql
 SELECT 
-  app_id,
+  release_version,
   platform,
-  COUNT(*) as total_patches,
-  MAX(patch_number) as latest_patch,
-  SUM(size_bytes) as total_size
+  arch,
+  patch_number,
+  active,
+  created_at
 FROM patches
-WHERE active = 1
-GROUP BY app_id, platform;
+WHERE app_id = 'com.example.app'
+ORDER BY created_at DESC;
 ```
 
-## 💾 Database Operations (db.js)
+---
 
-### Initialize Database
+## Architecture Support
 
-```javascript
-function initDatabase(dbPath) {
-  const db = new Database(dbPath);
-  
-  // Create table
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS patches (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      app_id TEXT NOT NULL,
-      platform TEXT NOT NULL CHECK(platform IN ('android', 'ios')),
-      patch_number INTEGER NOT NULL,
-      version TEXT NOT NULL,
-      download_url TEXT NOT NULL,
-      sha256 TEXT NOT NULL,
-      size_bytes INTEGER NOT NULL,
-      active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
-      UNIQUE(app_id, platform, patch_number)
-    );
-  `);
-  
-  // Create indexes
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_patches_lookup 
-    ON patches(app_id, platform, active, patch_number);
-    
-    CREATE INDEX IF NOT EXISTS idx_patches_version 
-    ON patches(app_id, platform, version, active);
-    
-    CREATE INDEX IF NOT EXISTS idx_patches_created 
-    ON patches(created_at DESC);
-  `);
-  
-  return db;
-}
-```
+### Supported Architectures
 
-### Insert Patch
+**Android**:
+- `aarch64` - ARM 64-bit (most common)
+- `x86_64` - Intel 64-bit (emulators)
+- `x86` - Intel 32-bit (old emulators)
+- `arm` - ARM 32-bit (old devices)
 
-```javascript
-function insertPatch(db, patch) {
-  const stmt = db.prepare(`
-    INSERT INTO patches (
-      app_id, platform, patch_number, version,
-      download_url, sha256, size_bytes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-  
-  const result = stmt.run(
-    patch.app_id,
-    patch.platform,
-    patch.patch_number,
-    patch.version,
-    patch.download_url,
-    patch.sha256,
-    patch.size_bytes
-  );
-  
-  return result.lastInsertRowid;
-}
-```
+**iOS**:
+- `aarch64` - ARM 64-bit (all modern devices)
 
-### Find Latest Patch
+### Why Architecture Matters
 
-```javascript
-function findLatestPatch(db, query) {
-  const stmt = db.prepare(`
-    SELECT 
-      id, patch_number, download_url, sha256, size_bytes
-    FROM patches
-    WHERE app_id = ?
-      AND platform = ?
-      AND version = ?
-      AND patch_number > ?
-      AND active = 1
-    ORDER BY patch_number DESC
-    LIMIT 1
-  `);
-  
-  return stmt.get(
-    query.app_id,
-    query.platform,
-    query.version,
-    query.current_patch || 0
-  );
-}
-```
+Different architectures need different patch files because:
+1. Binary code is architecture-specific
+2. `libapp.so` differs per architecture
+3. Patch must match base architecture
 
-### Get Next Patch Number
+**Example**: Android app on ARM64 device needs `aarch64` patch, not `x86_64` patch.
 
-```javascript
-function getNextPatchNumber(db, app_id, platform) {
-  const stmt = db.prepare(`
-    SELECT COALESCE(MAX(patch_number), 0) + 1 as next_patch
-    FROM patches
-    WHERE app_id = ? AND platform = ?
-  `);
-  
-  const result = stmt.get(app_id, platform);
-  return result.next_patch;
-}
-```
+---
 
-## 🔄 Migration Strategy
+## Migration from Old Schema
 
-### Version 1 (Initial)
-- Create patches table
-- Create indexes
-
-### Future Versions
-
-**Version 2: Add analytics table**
-```sql
-CREATE TABLE patch_installs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  patch_id INTEGER REFERENCES patches(id),
-  device_id TEXT,
-  status TEXT CHECK(status IN ('success', 'failed')),
-  error_message TEXT,
-  installed_at TEXT DEFAULT (datetime('now'))
-);
-```
-
-**Version 3: Add release_id**
-```sql
-ALTER TABLE patches ADD COLUMN release_id TEXT;
-```
-
-## 🔐 Security Considerations
-
-### SQL Injection Prevention
-- Use prepared statements
-- Never concatenate user input
-- Validate all inputs
-
-### Data Validation
-- Check app_id format
-- Validate platform enum
-- Validate version format
-- Validate patch_number > 0
-
-## 📊 Sample Data
+If you have old schema without `arch` column:
 
 ```sql
--- Insert sample patches
-INSERT INTO patches (app_id, platform, patch_number, version, download_url, sha256, size_bytes)
-VALUES 
-  ('com.example.app', 'android', 1, '1.0.0', 'https://cdn.example.com/1.bin', 'abc123', 1024000),
-  ('com.example.app', 'android', 2, '1.0.0', 'https://cdn.example.com/2.bin', 'def456', 1048576),
-  ('com.example.app', 'ios', 1, '1.0.0', 'https://cdn.example.com/ios1.bin', 'ghi789', 2097152);
+-- Add arch column
+ALTER TABLE patches ADD COLUMN arch TEXT;
+
+-- Set default for existing rows (Android ARM64)
+UPDATE patches SET arch = 'aarch64' WHERE platform = 'android';
+
+-- Set default for existing rows (iOS ARM64)
+UPDATE patches SET arch = 'aarch64' WHERE platform = 'ios';
+
+-- Add constraint (SQLite doesn't support ALTER TABLE ADD CONSTRAINT)
+-- Need to recreate table with new schema
 ```
 
-## ✅ Success Criteria
+---
 
-- [ ] Database initializes without errors
-- [ ] Patches can be inserted
-- [ ] Queries return correct results
-- [ ] Indexes improve performance
-- [ ] Unique constraint prevents duplicates
-- [ ] Rollback works (active flag)
-- [ ] Prepared statements prevent SQL injection
+## Summary
+
+**Key Changes**:
+- ✅ Added `arch` column
+- ✅ Updated unique constraint
+- ✅ Updated indexes
+- ✅ Added CHECK constraints
+
+**Why Important**:
+- Supports multi-architecture apps
+- Prevents wrong patch from being applied
+- Matches Shorebird's architecture handling
+
+---
+
+## Next
+
+See [05-STORAGE.md](05-STORAGE.md) for R2 storage structure.
